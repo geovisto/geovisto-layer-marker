@@ -1,6 +1,6 @@
 {
   "name": "geovisto-layer-marker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Geovisto tool which provides the marker layer",
   "main": "dist/index.js",
   "module": "dist/index.es.js",
@@ -23,7 +23,7 @@
     "visualization",
     "markers"
   ],
-  "homepage": "https://github.com/geovisto/geovisto-layer-choropleth",
+  "homepage": "https://github.com/geovisto/geovisto-layer-marker",
   "author": {
     "name": "Jiri Hynek",
     "url": "https://github.com/jirka"
@@ -62,8 +62,8 @@
     "autoprefixer": "^10.3.1",
     "eslint": "^7.31.0",
     "geovisto": "^1.0.0",
-    "geovisto-selection": "^1.0.0",
-    "geovisto-themes": "^1.0.0",
+    "geovisto-selection": "^1.0.2",
+    "geovisto-themes": "^1.0.1",
     "husky": "^7.0.1",
     "leaflet": "^1.7.1",
     "postcss": "^8.3.6",

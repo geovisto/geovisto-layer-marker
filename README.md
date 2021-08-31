@@ -64,5 +64,5 @@ This package serves as an extension of Geovisto core using the API for Geovisto 
 
 ## License
 
-[MIT](https://github.com/geovisto/geovisto-themes/blob/master/LICENSE)
+[MIT](https://github.com/geovisto/geovisto-layer-marker/blob/master/LICENSE)
 
