@@ -1,6 +1,6 @@
 {
   "name": "geovisto-layer-marker",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "Geovisto tool which provides the marker layer",
   "main": "dist/index.js",
   "module": "dist/index.es.js",
@@ -24,18 +24,34 @@
     "markers"
   ],
   "homepage": "https://github.com/geovisto/geovisto-layer-marker",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/geovisto/geovisto-layer-marker"
+  },
   "author": {
     "name": "Jiri Hynek",
     "url": "https://github.com/jirka"
   },
   "contributors": [
     {
-      "name": "Krystof Rykala",
-      "url": "https://github.com/rykala"
+      "name": "Lukas Dohnal",
+      "url": "https://github.com/luke015"
     },
     {
       "name": "Jakub Kachlik",
       "url": "https://github.com/kachlikjakub"
+    },
+    {
+      "name": "Tomas Koscielniak",
+      "url": "https://github.com/tkosci"
+    },
+    {
+      "name": "Vojtech Maly",
+      "url": "https://github.com/FabioHexo"
+    },
+    {
+      "name": "Krystof Rykala",
+      "url": "https://github.com/rykala"
     }
   ],
   "license": "MIT",
@@ -61,9 +77,9 @@
     "@typescript-eslint/parser": "^4.28.5",
     "autoprefixer": "^10.3.1",
     "eslint": "^7.31.0",
-    "geovisto": "^1.0.0",
-    "geovisto-selection": "^1.0.2",
-    "geovisto-themes": "^1.0.1",
+    "geovisto": "^2.0.0",
+    "geovisto-selection": "^2.0.0",
+    "geovisto-themes": "^2.0.1",
     "husky": "^7.0.1",
     "leaflet": "^1.7.1",
     "postcss": "^8.3.6",
@@ -84,7 +100,7 @@
     "leaflet.markercluster": "^1.5.0"
   },
   "peerDependencies": {
-    "geovisto": "^1.0.0",
+    "geovisto": "^2.0.0",
     "leaflet": "^1.7.1"
   }
 }

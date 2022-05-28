@@ -38,48 +38,55 @@ import {
     AbstractLayerTool,
     DataChangeEvent,
     DataManagerChangeEvent,
+    GeoDataChangeEvent,
+    GeoDataManager,
+    GeoDataManagerChangeEvent,
     GeoJSONTypes,
     IDataChangeAnimateOptions,
-    IMapDataDomain,
     IMapAggregationBucket,
     IMapAggregationFunction,
     IMapData,
+    IMapDataDomain,
     IMapDataChangeEvent,
     IMapDataManager,
-    IMapDomainDimension,
     IMapDomain,
+    IMapDomainDimension,
     IMapEvent,
     IMapForm,
     IMapFormControl,
+    IMapLegend,
+    IMapLegendControl,
     IMapToolInitProps,
     LayerToolRenderType
 } from "geovisto";
 
 import { createClusterMarkersData, createMarkerIconValueOptions, createPopupMessage } from '../marker/MarkerUtil';
-import IMarker from '../../types/marker/IMarker';
 import { IMarkerIconOptions, IMarkerIconValueOptions } from '../../types/marker/IMarkerIconOptions';
-import IMarkerLayerTool from '../../types/tool/IMarkerLayerTool';
 import { IMarkerLayerToolConfig } from '../../types/tool/IMarkerLayerToolConfig';
+import IMarker from '../../types/marker/IMarker';
+import IMarkerIcon from '../../types/marker/IMarkerIcon';
+import IMarkerLayerTool from '../../types/tool/IMarkerLayerTool';
 import IMarkerLayerToolDefaults from '../../types/tool/IMarkerLayerToolDefaults';
 import IMarkerLayerToolDimensions from '../../types/tool/IMarkerLayerToolDimensions';
-import IMarkerLayerToolState from '../../types/tool/IMarkerLayerToolState';
 import IMarkerLayerToolProps from '../../types/tool/IMarkerLayerToolProps';
+import IMarkerLayerToolState from '../../types/tool/IMarkerLayerToolState';
 import Marker from '../marker/Marker';
 import MarkerLayerToolDefaults from './MarkerLayerToolDefaults';
 import MarkerLayerToolMapForm from '../form/MarkerLayerToolMapForm';
+import MarkerLayerToolMapLegend from "../legend/MarkerLayerToolMapLegend";
 import MarkerLayerToolState from './MarkerLayerToolState';
-import IMarkerIcon from '../../types/marker/IMarkerIcon';
 
 /**
  * This class represents Marker layer tool. It works with geojson polygons representing countries.
  * 
  * @author Jiri Hynek
  */
-class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMapFormControl {
+class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMapFormControl, IMapLegendControl {
 
     private selectionToolAPI: ISelectionToolAPI | undefined;
     private themesToolAPI: IThemesToolAPI | undefined;
     private mapForm!: IMapForm;
+    private mapLegend!: IMapLegend;
 
     /**
      * It creates a new tool with respect to the props.
@@ -169,10 +176,27 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
     }
 
     /**
+     * It returns a legend with respect to the configuration.
+     */
+    public getMapLegend(): IMapLegend {
+        if(this.mapLegend == undefined) {
+            this.mapLegend = this.createMapLegend();
+        }
+        return this.mapLegend;
+    }
+
+    /**
      * It creates new tab control.
      */
     protected createMapForm(): IMapForm {
         return new MarkerLayerToolMapForm(this);
+    }
+
+    /**
+     * It creates new legend control.
+     */
+    protected createMapLegend(): IMapLegend {
+        return new MarkerLayerToolMapLegend(this);
     }
 
     /**
@@ -190,6 +214,19 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
     protected createLayerItems(): L.Layer[] {
         // create layer which clusters points
         //let layer = L.layerGroup([]);
+
+        /**
+         * If hiearachy is enabled, disable clustering of markers by setting ,,disableClusteringAtZoom" on the lowest possible zoom level.
+         */
+        const decideHierarchy = () : number | undefined => {
+            const geoManager = this.getState().getDimensions().geoData.getDomainManager() as GeoDataManager;
+            if (geoManager.isHierarchyEnabled()) {       
+                return this.getMap()?.getState().getLeafletMap()?.getMinZoom();
+            } else {
+                return this.getMap()?.getState().getLeafletMap()?.getMaxZoom();
+            }
+        };
+
         const markerLayerGroup: MarkerClusterGroup = new MarkerClusterGroup({
             // create cluster icon
             iconCreateFunction: (cluster) => {
@@ -198,7 +235,9 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
                 const markerOptions: IMarkerIconOptions = createClusterMarkersData(markers);
                 // create an icon for the parent marker
                 return this.getDefaults().getMarkerIcon(markerOptions);
-            }
+            },
+            // Disable clustering based on hierarchy enable status
+            disableClusteringAtZoom: decideHierarchy()                   
         });
 
         // update state and redraw
@@ -211,15 +250,10 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
      * It deletes layer items.
      */
     protected deleteLayerItems(): void {
-        //console.log("marker");
-        const markers = this.getState().getMarkers();
-
         // delete the 'value' property of every geo feature object if defined
         const markerLayerGroup = this.getState().getMarkerLayerGroup();
         if(markerLayerGroup) {
-            for(let i = 0; i < markers.length; i++) {
-                markerLayerGroup.removeLayer(markers[i]);
-            }
+            markerLayerGroup.clearLayers();
         }
         
         this.getState().setMarkers([]);
@@ -229,6 +263,7 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
      * It prepares data for markers.
      */
     protected updateData(): Map<string, Map<string, IMapAggregationBucket | null>> {
+        let bucketHierarchyMap =  new Map<string, Map<string, IMapAggregationBucket | null>>();
         // initialize a hash map of aggreation buckets
         const bucketMaps = new Map<string, Map<string, IMapAggregationBucket | null>>();
 
@@ -240,6 +275,8 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
         const categoryDimension: IMapDataDomain | undefined = dimensions.category.getValue();
         const map = this.getMap();
 
+        const geoManager = this.getState().getDimensions().geoData.getDomainManager() as GeoDataManager;
+        const domainName = this.getState().getDimensions().geoData.getValue()?.getName() ?? "";
         // test whether the dimension are set
         if(geoDimension && aggregationDimension && map) {
             const mapData: IMapDataManager = map.getState().getMapData();
@@ -263,27 +300,99 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
                     // find the 'category' properties
                     foundCategories = categoryDimension ? mapData.getDataRecordValues(categoryDimension, data[i]) : [ "" ];
                     // since the data are flattened we can expect max one found item
+                    foundCategory = "";
                     if(foundCategories.length == 1) {
                         foundCategory = typeof foundCategories[0] === "string" ? foundCategories[0] : new String(foundCategories[0]).toString();
-                        // get the aggregation bucket for the category or create a new one
-                        aggregationBucket = bucketMap.get(foundCategory);
-                        if(!aggregationBucket) {
-                            aggregationBucket = aggregationDimension.getAggregationBucket();
-                            bucketMap.set(foundCategory, aggregationBucket);
-                        }
-                        // find the 'value' properties
-                        foundValues = valueDimension ? mapData.getDataRecordValues(valueDimension, data[i]) : [ 1 ];
-                        // since the data are flattened we can expect max one found item
-                        aggregationBucket.addValue(foundValues.length == 1 ? (typeof foundValues[0] == "number" ? foundValues[0] : 1) : 0);
                     }
+                    // get the aggregation bucket for the category or create a new one
+                    aggregationBucket = bucketMap.get(foundCategory);
+                    if(!aggregationBucket) {
+                        aggregationBucket = aggregationDimension.getAggregationBucket();
+                        bucketMap.set(foundCategory, aggregationBucket);
+                    }
+                    // find the 'value' properties
+                    foundValues = valueDimension ? mapData.getDataRecordValues(valueDimension, data[i]) : [ 1 ];
+                    // since the data are flattened we can expect max one found item
+                    aggregationBucket.addValue(foundValues.length == 1 ? (typeof foundValues[0] == "number" ? foundValues[0] : 1) : 0);
                 }
             }
         }
 
-        // update bucket data
-        this.getState().setBucketData(bucketMaps);
+        // Check if Hierarchy is enabled in general and if its defined for that particular domain.
+        if (geoManager.isHierarchyEnabled() && geoManager.isHierarchyEnabledForDomain(domainName)) {
+            const active = geoManager.getActiveByTree(domainName);
+            
+            if (geoManager.treeAggregationFlag(domainName)) {
+            // Iterate over active markers
+                for (let cnt = 0; cnt < active.length; cnt++) {
+                const activeGeo = active[cnt];
+                // Get lowets childs of marker
+                const childs = geoManager.getChildsFromTree(domainName, activeGeo);
+                // Check if there are any childs, indicating if marker is leaf of tree or is a parent.
+                if (childs.length > 0) {
+                    // Create new Category Map
+                    const categoryMap = new Map<string, IMapAggregationBucket | null>();
+                    // Iterate over childs of marker.
+                    for (let cnt1 = 0; cnt1 < childs.length; cnt1++) {     
+                        const childAggregated = childs[cnt1];
+                        const notAggregatedChildCategoryMap = bucketMaps.get(childAggregated);
+                        if (notAggregatedChildCategoryMap) {
+                            // Iterate over childs category map.
+                            notAggregatedChildCategoryMap.forEach((categoryBucket, categoryName) => {
+                                // Check if category map has already defined that category. 
+                                if (categoryMap.has(categoryName)) {   
+                                    const categoryAggrBucket = categoryMap.get(categoryName);
+                                    const value = categoryBucket?.getValue();
+                                    // Agregate value from already aggregated map, with non agregated value of child.
+                                    if (aggregationDimension?.getName() === "count") {
+                                        if (value) {
+                                            for (let cntInner = 0; cntInner < value; cntInner++) {
+                                                categoryAggrBucket?.addValue(1);
+                                            }
+                                        }
+                                    } else {
+                                        categoryAggrBucket?.addValue(typeof value === "number" ? value : 1);
+                                    }
 
-        return bucketMaps;
+                                    if (categoryAggrBucket) {
+                                        categoryMap.set(categoryName, categoryAggrBucket);
+                                    }
+                                }else {   
+                                    // If category map does not have category bucekt yet, copy the bucket.
+                                    // Since data would be agregated anyways, there is no need to make new bucket in first category iteration. 
+                                    categoryMap.set(categoryName, categoryBucket);
+                                }
+                            });
+                        }
+                    }
+                    bucketHierarchyMap.set(activeGeo, categoryMap);
+                } else {    
+                    // If marker is leaf of hierarchy tree, just copy his previous values.                               
+                    if (bucketMaps.has(activeGeo)) {
+                        const from = bucketMaps.get(activeGeo);
+                        if (from) {
+                            bucketHierarchyMap.set(activeGeo, from);
+                        }
+                    }
+                }
+                }    
+            } else {
+                bucketHierarchyMap = bucketMaps;
+            }
+
+            if (bucketHierarchyMap.size === 0) {
+                active.forEach(id => {
+                    const mapTemp = new Map<string, IMapAggregationBucket>();
+                    bucketHierarchyMap.set(id, mapTemp);
+                });
+            }
+
+            this.getState().setBucketData(bucketHierarchyMap);
+            return bucketHierarchyMap;
+        } else {
+            this.getState().setBucketData(bucketMaps);
+            return bucketMaps;
+        }
     }
 
     /**
@@ -295,11 +404,19 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
 
         const bucketMaps: Map<string, Map<string, IMapAggregationBucket | null>> = this.getState().getBucketData();
         const layerGroup: L.LayerGroup | undefined = this.getState().getMarkerLayerGroup();
-        const pointFeatures: Feature[] | undefined = this.getState().getDimensions().geoData.getValue()?.getFeatures([ GeoJSONTypes.Point ]).features;
         const selectedIds: string[] | undefined = this.getSelectionTool()?.getSelection()?.getIds();
+        const pointFeaturesOriginal : Feature[] | undefined = this.getState().getDimensions().geoData.getValue()?.getFeatures([ GeoJSONTypes.Point ]).features;
 
+        // Hierarchy overload
+        const geoManager = this.getState().getDimensions().geoData.getDomainManager() as GeoDataManager;
+        const domainName = this.getState().getDimensions().geoData.getValue()?.getName() ?? "";
+        let pointFeatures = geoManager.getFeatures(domainName, [  GeoJSONTypes.Point  ])?.features;
 
         // optimization
+        if (!(geoManager.isHierarchyEnabled() && geoManager.isHierarchyEnabledForDomain(domainName))) {
+            pointFeatures = pointFeaturesOriginal;
+        }
+
         const geoDimension: IMapDataDomain | undefined = this.getState().getDimensions().geoId.getValue();
 
         // iterate over point features
@@ -316,12 +433,14 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
                         bucketMap = new Map([...bucketMap.entries()].sort());
                         // create marker
                         marker = this.createMarker(pointFeature, bucketMap);
-                        layerGroup?.addLayer(marker);
                         markers.push(marker);
                     }
                 }
             }
         }
+        
+        // add all markers
+        (layerGroup as MarkerClusterGroup)?.addLayers(markers);
 
         // updates bucket data
         this.getState().setMarkers(markers);
@@ -337,12 +456,15 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
      */
     protected createMarker(pointFeature: Feature, bucketMap: Map<string, IMapAggregationBucket | null>): IMarker<IMarkerIcon<IMarkerIconOptions>> {
         // create icon
+        const currentDataCategories = this.getState().getCurrentDataCategories() ?? [];
+
         const icon = this.getDefaults().getMarkerIcon({
             id: pointFeature.properties?.name,
-            useDonut: this.getState().getDimensions().category.getValue() !== undefined,
+            shortId: pointFeature.id !== undefined ? pointFeature.id.toString() : "",
+            useDonut: this.getState().getDimensions().category.getValue() !== undefined && currentDataCategories.length !== 0,
             isGroup: false,
             values: createMarkerIconValueOptions(bucketMap),
-            categories: this.getState().getCurrentDataCategories() ?? []
+            categories: currentDataCategories
         });
 
         // create marker
@@ -354,7 +476,7 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
         });
 
         // create popop
-        marker.bindPopup(createPopupMessage(pointFeature.properties?.name ?? "", bucketMap));
+        marker.bindPopup(createPopupMessage(pointFeature.properties?.name ?? "", bucketMap, this, icon.options.useDonut));
 
         return marker;
     }
@@ -377,7 +499,9 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
                 marker.getIcon().updateData(markerIconValueOptions, animateOptions);
                 marker.getPopup()?.setContent(createPopupMessage(
                     marker.getOptions().name,
-                    bucketData
+                    bucketData,
+                    this,
+                    marker.getIcon().options.useDonut
                 ));
                 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -449,8 +573,16 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
                 // update style
                 // TODO
                 //this.updateStyle();
+                if(animateOptions) {
+                    this.updateMarkers(animateOptions);
+                } else {
+                    this.deleteLayerItems();
+                    this.createMarkers();
+                }
                 break;
         }
+
+        super.render(type);
     }
     
     /**
@@ -478,6 +610,12 @@ class MarkerLayerTool extends AbstractLayerTool implements IMarkerLayerTool, IMa
      */
     public handleEvent(event: IMapEvent): void {
         switch (event.getType()) {
+            case GeoDataManagerChangeEvent.TYPE():
+                this.render(LayerToolRenderType.DATA);
+                break;
+            case GeoDataChangeEvent.TYPE():
+                this.render(LayerToolRenderType.DATA);
+                break;
             case DataManagerChangeEvent.TYPE():
                 this.render(LayerToolRenderType.DATA);
                 break;

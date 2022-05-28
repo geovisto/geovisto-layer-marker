@@ -43,6 +43,9 @@ map.draw(Geovisto.getMapConfigManagerFactory().default({
         "value": "value", // data domain
         "aggregation": "sum", // [ "sum", "count" ]
         "category": "state" // data domain
+        "units": "$", // units shortcut
+        "unitsDesc": "US Dollars", // units label
+        "round": 1 // rounding
       }
     },
   ]
